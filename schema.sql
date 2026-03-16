@@ -1,6 +1,0 @@
-CREATE TABLE mesures (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  distance_cm DOUBLE NOT NULL,
-  led_count INT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
