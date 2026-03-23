@@ -1,39 +1,40 @@
-#include <SoftwareSerial.h>
+#include <Servo.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <SoftwareSerial.h>
 
-#define ONE_WIRE_BUS 2
-#define ECHO_PIN 4
+#define SERVO_PIN 5
 #define TRIG_PIN 3
+#define ECHO_PIN 4
 #define BUZZER_PIN 8
+#define ONE_WIRE_BUS 2
 
 #define BT_RX 7
 #define BT_TX 6
 
-int buzzerState = 0;
-
+Servo s;
 SoftwareSerial BT(BT_RX, BT_TX);
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
-bool lastBuzzerState = false;
 
+int angle = 20;
+int stepAngle = 10;
 
+float tempC = 0;
 
+// timer température
+unsigned long lastTempTime = 0;
+unsigned long tempInterval = 2000;
 
-void setup() {
-  Serial.begin(9600);
-  BT.begin(9600);
+// timer envoi Bluetooth
+unsigned long lastSendTime = 0;
+unsigned long sendInterval = 180;
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-
-  digitalWrite(BUZZER_PIN, LOW);
-
-  sensors.begin();
-}
+// timer clignotement LED
+unsigned long lastBlinkTime = 0;
+bool ledState = false;
+int blinkInterval = 100;
 
 float readDistanceCM() {
   digitalWrite(TRIG_PIN, LOW);
@@ -41,64 +42,102 @@ float readDistanceCM() {
 
   digitalWrite(TRIG_PIN, HIGH);
   delayMicroseconds(10);
-
   digitalWrite(TRIG_PIN, LOW);
 
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  long duration = pulseIn(ECHO_PIN, HIGH, 15000);
 
-  if (duration == 0) {
-    return 999;
-  }
+  if (duration == 0) return 999;
 
-  return duration * 0.034 / 2.0;
+  float distance = duration * 0.034 / 2.0;
+
+  if (distance < 2 || distance > 400) return 999;
+
+  return distance;
+}
+
+void setup() {
+  Serial.begin(9600);
+  BT.begin(9600);
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  sensors.begin();
+
+  s.attach(SERVO_PIN);
+  s.write(angle);
+
+  delay(500);
 }
 
 void loop() {
+  // Rotation servo
+  s.write(angle);
+  delay(150);
 
+  // Lecture distance
   float distance = readDistanceCM();
-  bool isNearby = distance < 5.0;
+  bool isNearby = (distance < 50.0);
+  int alerte = isNearby ? 1 : 0;
 
-  digitalWrite(LED_BUILTIN, isNearby);
-
-  int buzzerTrigger = 0;
-
+  // LED + buzzer
   if (isNearby) {
-
-    tone(BUZZER_PIN, 1500);
-    delay(80);
-    tone(BUZZER_PIN, 500);
-    delay(80);
-
-    // Détection OFF → ON
-    if (!lastBuzzerState) {
-      buzzerTrigger = 1;
+    if (millis() - lastBlinkTime > blinkInterval) {
+      ledState = !ledState;
+      digitalWrite(LED_BUILTIN, ledState);
+      lastBlinkTime = millis();
     }
-
-    lastBuzzerState = true;
-
-  } 
-  else {
-
+    tone(BUZZER_PIN, 1200);
+  } else {
+    digitalWrite(LED_BUILTIN, LOW);
+    ledState = false;
     noTone(BUZZER_PIN);
-    digitalWrite(BUZZER_PIN, LOW);
-
-    lastBuzzerState = false;
   }
 
-  sensors.requestTemperatures();
-  float tempC = sensors.getTempCByIndex(0);
+  // Température toutes les 2 secondes
+  if (millis() - lastTempTime > tempInterval) {
+    sensors.requestTemperatures();
+    tempC = sensors.getTempCByIndex(0);
+    lastTempTime = millis();
+  }
 
-  Serial.print(tempC);
-  Serial.print(",");
-  Serial.print(distance);
-  Serial.print(",");
-  Serial.println(buzzerTrigger);
+  // Envoi Bluetooth + Serial
+  if (millis() - lastSendTime > sendInterval) {
+    // format simple CSV
+    BT.print(angle);
+    BT.print(",");
+    BT.print(distance);
+    BT.print(",");
+    BT.print(tempC);
+    BT.print(",");
+    BT.println(alerte);
 
-  BT.print(tempC);
-  BT.print(",");
-  BT.print(distance);
-  BT.print(",");
-  BT.println(buzzerTrigger);
+    Serial.print(angle);
+    Serial.print(",");
+    Serial.print(distance);
+    Serial.print(",");
+    Serial.print(tempC);
+    Serial.print(",");
+    Serial.println(alerte);
 
-  delay(300);
+    lastSendTime = millis();
+  }
+
+  //sevo move
+  angle += stepAngle;
+
+  if (angle >= 180) {
+    angle = 180;
+    stepAngle = -10;
+  }
+
+  if (angle <= 0) {
+    angle = 0;
+    stepAngle = 10;
+  }
 }
