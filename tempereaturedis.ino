@@ -1,143 +1,226 @@
 #include <Servo.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <SoftwareSerial.h>
 
-#define SERVO_PIN 5
-#define TRIG_PIN 3
-#define ECHO_PIN 4
-#define BUZZER_PIN 8
-#define ONE_WIRE_BUS 2
 
-#define BT_RX 7
-#define BT_TX 6
 
-Servo s;
-SoftwareSerial BT(BT_RX, BT_TX);
-
-OneWire oneWire(ONE_WIRE_BUS);
+//Buzzer
+const int buzzerPin = 8;
+//config du capteur temp
+const int oneWireBus = 2;
+OneWire oneWire(oneWireBus);
 DallasTemperature sensors(&oneWire);
 
-int angle = 20;
-int stepAngle = 10;
 
-float tempC = 0;
 
-// timer température
-unsigned long lastTempTime = 0;
-unsigned long tempInterval = 2000;
+Servo monServo;
 
-// timer envoi Bluetooth
-unsigned long lastSendTime = 0;
-unsigned long sendInterval = 180;
+const int startButton = 10;
+const int mode2Button = 11;
 
-// timer clignotement LED
-unsigned long lastBlinkTime = 0;
-bool ledState = false;
-int blinkInterval = 100;
 
-float readDistanceCM() {
-  digitalWrite(TRIG_PIN, LOW);
+float temperature = -127;
+unsigned long lastTempRead = 0;
+const unsigned long tempInterval = 10000;
+
+const int trigPin = 3;
+const int echoPin = 4;
+
+int mode = 1;
+
+int position = 0;
+int direction = 1;
+const int stepSize = 2;
+
+bool lastStartState = HIGH;
+bool lastMode2State = HIGH;
+unsigned long lastStartTime = 0;
+unsigned long lastMode2Time = 0;
+const unsigned long debounceDelay = 100;
+
+bool objetDetecte = false;
+
+float lireDistanceCM() {
+  digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
-
-  digitalWrite(TRIG_PIN, HIGH);
+  digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(trigPin, LOW);
 
-  long duration = pulseIn(ECHO_PIN, HIGH, 15000);
+  long duree = pulseIn(echoPin, HIGH, 20000);
 
-  if (duration == 0) return 999;
+  if (duree == 0) return -1;
 
-  float distance = duration * 0.034 / 2.0;
+  float distance = duree * 0.0343 / 2.0;
 
-  if (distance < 2 || distance > 400) return 999;
+  if (distance < 2 || distance > 400) return -1;
 
   return distance;
 }
 
+//func de temp
+float lireTemperatureC() {
+  sensors.requestTemperatures();
+  float tempC = sensors.getTempCByIndex(0);
+
+  if (tempC == DEVICE_DISCONNECTED_C) {
+    return -127;
+  }
+
+  return tempC;
+}
+
+
+
+
 void setup() {
-  Serial.begin(9600);
-  BT.begin(9600);
+  pinMode(startButton, INPUT_PULLUP);
+  pinMode(mode2Button, INPUT_PULLUP);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
 
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(LED_BUILTIN, OUTPUT);
-
-  digitalWrite(BUZZER_PIN, LOW);
-  digitalWrite(LED_BUILTIN, LOW);
+  pinMode(buzzerPin, OUTPUT);
+  digitalWrite(buzzerPin, LOW);
 
   sensors.begin();
-
-  s.attach(SERVO_PIN);
-  s.write(angle);
-
-  delay(500);
+  monServo.attach(5);
+  monServo.write(0);
+  temperature = lireTemperatureC();
+  Serial.begin(9600);
+  Serial.println("Systeme demarre en MODE 1 : SCAN NORMAL");
+  Serial.println("BTN Red = MODE SCAN NORMAL");
+  Serial.println("BTN Bleu = MODE SCAN INTELLIGENT");
+  
 }
 
 void loop() {
-  // Rotation servo
-  s.write(angle);
-  delay(150);
+  bool startState = digitalRead(startButton);
+  bool mode2State = digitalRead(mode2Button);
+  unsigned long now = millis();
 
-  // Lecture distance
-  float distance = readDistanceCM();
-  bool isNearby = (distance < 50.0);
-  int alerte = isNearby ? 1 : 0;
+  if (startState == LOW && lastStartState == HIGH && (now - lastStartTime) > debounceDelay) {
+    digitalWrite(buzzerPin, LOW);
+    lastStartTime = now;
+    mode = 1;
+    position = 0;
+    direction = 1;
+    objetDetecte = false;
+    Serial.println("MODE 1 : SCAN NORMAL");
+  }
 
-  // LED + buzzer
-  if (isNearby) {
-    if (millis() - lastBlinkTime > blinkInterval) {
-      ledState = !ledState;
-      digitalWrite(LED_BUILTIN, ledState);
-      lastBlinkTime = millis();
+  if (mode2State == LOW && lastMode2State == HIGH && (now - lastMode2Time) > debounceDelay) {
+    digitalWrite(buzzerPin, LOW);
+    lastMode2Time = now;
+    mode = 2;
+    objetDetecte = false;
+    position = 0;
+    direction = 1;
+    Serial.println("MODE 2 : SCAN INTELLIGENT");
+  }
+
+  lastStartState = startState;
+  lastMode2State = mode2State;
+
+
+  if (millis() - lastTempRead >= tempInterval) {
+    lastTempRead = millis();
+    temperature = lireTemperatureC();
+  }
+
+  float distance = lireDistanceCM();
+
+
+
+
+  if (mode == 1) {
+    monServo.write(position);
+
+    Serial.print("SCAN | Position: ");
+    Serial.print(position);
+    Serial.print(" deg | Distance: ");
+    if (distance < 0) Serial.println("Hors portee");
+    else {
+      Serial.print(distance);
+      Serial.println(" cm");
     }
-    tone(BUZZER_PIN, 1200);
+
+    position += direction * stepSize;
+
+    if (position >= 180) {
+      position = 180;
+      direction = -1;
+    }
+    if (position <= 0) {
+      position = 0;
+      direction = 1;
+    }
+
+    delay(20);
+  }
+
+  else if (mode == 2) {
+    if (!objetDetecte) {
+      monServo.write(position);
+
+      Serial.print("SCAN INTELLIGENT | Position: ");
+      Serial.print(position);
+      Serial.print(" deg | Distance: ");
+      if (distance < 0) Serial.println("Hors portee");
+      else {
+        Serial.print(distance);
+        Serial.println(" cm");
+      }
+
+      if (distance > 0 && distance <= 20) {
+        digitalWrite(buzzerPin, HIGH);
+        objetDetecte = true;
+        Serial.print("CIBLE VERROUILLEE | Angle: ");
+        Serial.print(position);
+        Serial.print(" deg | Distance: ");
+        Serial.print(distance);
+        Serial.println(" cm");
+      } else {
+        position += direction * stepSize;
+
+        if (position >= 180) {
+          position = 180;
+          direction = -1;
+        }
+        if (position <= 0) {
+          position = 0;
+          direction = 1;
+        }
+
+        delay(20);
+      }
+    } else {
+      Serial.print("CIBLE VERROUILLEE | Angle: ");
+      Serial.print(position);
+      Serial.print(" deg | Distance: ");
+      if (distance < 0) Serial.println("Hors portee");
+      else {
+        Serial.print(distance);
+        Serial.println(" cm");
+      }
+
+      if (distance < 0 || distance > 20) {
+        digitalWrite(buzzerPin, LOW);
+        objetDetecte = false;
+        Serial.println("Cible perdue -> reprise scan");
+      }
+
+
+      delay(100);
+    }
+
+    
+  }
+
+  Serial.print(" | Temperature: ");
+  if (temperature == -127) {
+    Serial.println("Erreur");
   } else {
-    digitalWrite(LED_BUILTIN, LOW);
-    ledState = false;
-    noTone(BUZZER_PIN);
-  }
-
-  // Température toutes les 2 secondes
-  if (millis() - lastTempTime > tempInterval) {
-    sensors.requestTemperatures();
-    tempC = sensors.getTempCByIndex(0);
-    lastTempTime = millis();
-  }
-
-  // Envoi Bluetooth + Serial
-  if (millis() - lastSendTime > sendInterval) {
-    // format simple CSV
-    BT.print(angle);
-    BT.print(",");
-    BT.print(distance);
-    BT.print(",");
-    BT.print(tempC);
-    BT.print(",");
-    BT.println(alerte);
-
-    Serial.print(angle);
-    Serial.print(",");
-    Serial.print(distance);
-    Serial.print(",");
-    Serial.print(tempC);
-    Serial.print(",");
-    Serial.println(alerte);
-
-    lastSendTime = millis();
-  }
-
-  //sevo move
-  angle += stepAngle;
-
-  if (angle >= 180) {
-    angle = 180;
-    stepAngle = -10;
-  }
-
-  if (angle <= 0) {
-    angle = 0;
-    stepAngle = 10;
+    Serial.print(temperature);
+    Serial.println(" C");
   }
 }
