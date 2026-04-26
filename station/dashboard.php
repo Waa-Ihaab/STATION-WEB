@@ -268,6 +268,7 @@ function distToR(d){
 function drawRadar(){
   ctx.clearRect(0,0,W,H);
 
+  // fond radar
   ctx.beginPath();
   ctx.arc(cx,cy,R,Math.PI,Math.PI*2);
   ctx.fillStyle='rgba(0,15,0,.9)';
@@ -276,6 +277,7 @@ function drawRadar(){
   ctx.lineWidth=2;
   ctx.stroke();
 
+  // cercles distance
   ctx.strokeStyle='rgba(0,255,0,.3)';
   ctx.fillStyle='rgba(0,255,0,.6)';
   ctx.font="10px 'Share Tech Mono'";
@@ -288,6 +290,7 @@ function drawRadar(){
     ctx.fillText(`${i*100}cm`,cx+r+5,cy-5);
   }
 
+  // angles
   [180,120,80,40,0].forEach(deg=>{
     const p=pointXY(deg,R);
     ctx.beginPath();
@@ -299,6 +302,7 @@ function drawRadar(){
     ctx.fillText(deg+'°',t.x,t.y);
   });
 
+  // balayage radar
   for(let t=0;t<30;t++){
     const a=sweepAngle-t;
     if(a<0 || a>180) continue;
@@ -311,15 +315,24 @@ function drawRadar(){
     ctx.stroke();
   }
 
+  // === DETECTION AVEC LIGNE ===
   hits.forEach(h=>{
     const p=pointXY(h.angle,distToR(h.distance));
-    const alpha=Math.max(0,1-h.age/150);
+    const alpha=Math.max(0,1-h.age/180);
 
-    ctx.strokeStyle=h.alert
+    ctx.strokeStyle = h.alert
       ? `rgba(255,0,60,${alpha})`
       : `rgba(0,255,0,${alpha})`;
 
-    ctx.lineWidth=2;
+    ctx.lineWidth = 2;
+
+    // ligne centre -> point
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.lineTo(p.x,p.y);
+    ctx.stroke();
+
+    // point
     ctx.beginPath();
     ctx.arc(p.x,p.y,6,0,Math.PI*2);
     ctx.stroke();
@@ -327,7 +340,8 @@ function drawRadar(){
     h.age++;
   });
 
-  hits = hits.filter(h=>h.age<150);
+  // disparition progressive
+  hits = hits.filter(h=>h.age < 180);
 }
 
 function animate(){
