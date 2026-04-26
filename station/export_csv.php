@@ -17,9 +17,9 @@ $output = fopen('php://output', 'w');
 
 fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
 
-fputcsv($output, ['ID', 'Angle', 'Temperature', 'Distance', 'Buzzer'], ';');
+fputcsv($output, ['ID', 'Mode', 'Angle', 'Temperature', 'Distance', 'Buzzer'], ';');
 
-$sql = "SELECT id, angle, temperature, distance, buzzer
+$sql = "SELECT id, mode, angle, temperature, distance, buzzer
         FROM sensor_data
         ORDER BY id DESC";
 
@@ -29,6 +29,7 @@ if ($result) {
     while ($row = $result->fetch_assoc()) {
         fputcsv($output, [
             $row['id'],
+            $row['mode'],
             $row['angle'],
             $row['temperature'],
             $row['distance'],
